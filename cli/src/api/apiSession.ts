@@ -971,13 +971,18 @@ export class ApiSessionClient extends EventEmitter {
     sendClaudeSessionMessage(body: RawJSONLines): void {
         let content: MessageContent
         // Origin timestamp (epoch ms) from the transcript entry's own `timestamp`,
-        // forwarded only for agent messages so the hub can stamp created_at/invoked_at
-        // with the jsonl entry's own time instead of hub-receive time (fixes chat
-        // order drifting from the PTY transcript during bursts/resume — see
-        // transcript ordering contract). The external-user-echo path is left
-        // unchanged: it has no localId either, but its existing arrival-time
-        // stamping already reflects when it was actually forwarded/consumed.
+        // forwarded for both agent and external-user messages so the hub can stamp
+        // created_at/invoked_at with the jsonl entry's own time instead of
+        // hub-receive time. User prompts must carry it too: on resume the whole
+        // transcript is replayed at once, and arrival-time stamping would sort
+        // every prompt after all historical agent output in the web timeline.
         let createdAt: number | undefined
+        if (body.timestamp) {
+            const parsed = Date.parse(body.timestamp)
+            if (!Number.isNaN(parsed)) {
+                createdAt = parsed
+            }
+        }
 
         if (isExternalUserMessage(body)) {
             const text = extractRawUserTextContent(body.message.content) ?? ''
@@ -1002,12 +1007,6 @@ export class ApiSessionClient extends EventEmitter {
                 },
                 meta: {
                     sentFrom: 'cli'
-                }
-            }
-            if (body.timestamp) {
-                const parsed = Date.parse(body.timestamp)
-                if (!Number.isNaN(parsed)) {
-                    createdAt = parsed
                 }
             }
         }
