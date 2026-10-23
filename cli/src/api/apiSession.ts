@@ -954,6 +954,12 @@ export class ApiSessionClient extends EventEmitter {
         }
     }
 
+    sendTranscriptRewind(anchorUuids: string[]): void {
+        this.emitOrQueue(() => {
+            this.socket.emit('transcript-rewind', { sid: this.sessionId, anchorUuids })
+        })
+    }
+
     sendAgySessionMessage(
         entry: { type: string; content?: string; tool_calls?: { name: string; args: Record<string, unknown> }[]; step_index?: number; model?: string },
         conversationId?: string,

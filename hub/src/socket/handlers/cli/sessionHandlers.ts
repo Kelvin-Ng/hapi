@@ -122,6 +122,21 @@ export function registerSessionHandlers(socket: CliSocketWithData, deps: Session
         }
     })
 
+    socket.on('transcript-rewind', data => {
+        const parsed = z.object({
+            sid: z.string(),
+            anchorUuids: z.array(z.string().min(1)).min(1).max(50)
+        }).safeParse(data)
+        if (!parsed.success) return
+        const { sid, anchorUuids } = parsed.data
+        const access = resolveSessionAccess(sid)
+        if (!access.ok) { emitAccessError('session', sid, access.reason); return }
+        const result = store.messages.truncateMessagesAfterTranscriptAnchor(sid, anchorUuids)
+        if (result) {
+            onWebappEvent?.({ type: 'messages-invalidated', sessionId: sid })
+        }
+    })
+
     socket.on('message', (data: unknown) => {
         const parsed = messageSchema.safeParse(data)
         if (!parsed.success) {

@@ -42,6 +42,7 @@ import {
     getMessagesAfterSeq,
     getMessageSeqById,
     truncateMessagesFromLocalId,
+    truncateMessagesAfterTranscriptAnchor,
     type CancelQueuedMessageResult,
     type LookupQueuedMessageResult,
     type LocalMessageState,
@@ -224,6 +225,10 @@ export class MessageStore {
 
     mergeSessionMessages(fromSessionId: string, toSessionId: string): { moved: number; oldMaxSeq: number; newMaxSeq: number } {
         return mergeSessionMessages(this.db, fromSessionId, toSessionId)
+    }
+
+    truncateMessagesAfterTranscriptAnchor(sessionId: string, anchorUuids: string[]): { deleted: number; epoch: number } | null {
+        return truncateMessagesAfterTranscriptAnchor(this.db, sessionId, anchorUuids)
     }
 
     truncateMessagesFromLocalId(
