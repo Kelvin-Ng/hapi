@@ -22,6 +22,8 @@ export interface SessionHookData {
     source?: string;
     /** Present on UserPromptSubmit/PreToolUse hooks; absent on SessionStart. */
     permission_mode?: unknown;
+    /** Present on SessionStart for some sources (e.g. compact, clear). */
+    model?: unknown;
     [key: string]: unknown;
 }
 
