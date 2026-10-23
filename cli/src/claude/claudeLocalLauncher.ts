@@ -4,8 +4,11 @@ import { createSessionScanner } from "./utils/sessionScanner";
 import { isClaudeChatVisibleMessage } from "./utils/chatVisibility";
 import { BaseLocalLauncher } from "@/modules/common/launcher/BaseLocalLauncher";
 import { applySessionTitleFallback } from './utils/sessionTitleFallback';
+import { createTranscriptRewindTracker } from './utils/transcriptRewind';
 
 export async function claudeLocalLauncher(session: Session): Promise<'switch' | 'exit'> {
+
+    const rewindTracker = createTranscriptRewindTracker();
 
     // Create scanner
     const scanner = await createSessionScanner({
@@ -13,6 +16,12 @@ export async function claudeLocalLauncher(session: Session): Promise<'switch' | 
         workingDirectory: session.path,
         onMessage: (message) => {
             session.localPermissionBridge.onTranscript(message);
+            // Emitted before the branching prompt itself, so the hub truncates
+            // first and the new prompt lands after the branch point.
+            const rewindAnchors = rewindTracker.observe(message);
+            if (rewindAnchors) {
+                session.client.sendTranscriptRewind(rewindAnchors);
+            }
             // Preserve the AI-generated title emitted by Claude Code's native
             // interactive CLI. It is metadata, not a visible chat message.
             if (message.type === 'ai-title') {

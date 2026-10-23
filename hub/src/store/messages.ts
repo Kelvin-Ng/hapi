@@ -1122,6 +1122,57 @@ export function mergeSessionMessages(
  * the removed suffix with `replacement` messages. Bumps message epoch so web
  * clients reset their window.
  */
+/**
+ * Drop messages after the newest agent message whose transcript entry uuid is in
+ * `anchorUuids` (a Claude TUI /rewind branch point and its ancestors). Only acts
+ * when that range contains a user prompt, so a stray branch never deletes agent
+ * output alone. Queued web messages that have not been delivered are kept.
+ */
+export function truncateMessagesAfterTranscriptAnchor(
+    db: Database,
+    sessionId: string,
+    anchorUuids: string[]
+): { deleted: number; epoch: number } | null {
+    const anchors = new Set(anchorUuids)
+    return db.transaction(() => {
+        const rows = db.prepare(`
+            SELECT seq, content, COALESCE(invoked_at, created_at) AS position_at
+            FROM messages
+            WHERE session_id = ?
+            ORDER BY position_at DESC, seq DESC
+        `).all(sessionId) as Array<{ seq: number; content: string | Uint8Array | null; position_at: number }>
+
+        let anchor: { seq: number; position_at: number } | null = null
+        let hasUserPromptAfter = false
+        for (const row of rows) {
+            const content = decodeMessageContent(row.content) as {
+                role?: unknown
+                content?: { data?: { uuid?: unknown } }
+            } | null
+            const uuid = content?.content?.data?.uuid
+            if (content?.role === 'agent' && typeof uuid === 'string' && anchors.has(uuid)) {
+                anchor = row
+                break
+            }
+            if (content?.role === 'user') hasUserPromptAfter = true
+        }
+        if (!anchor || !hasUserPromptAfter) return null
+
+        const deleted = db.prepare(`
+            DELETE FROM messages
+            WHERE session_id = ?
+              AND (
+                COALESCE(invoked_at, created_at) > ?
+                OR (COALESCE(invoked_at, created_at) = ? AND seq > ?)
+              )
+              AND NOT (invoked_at IS NULL AND local_id IS NOT NULL)
+        `).run(sessionId, anchor.position_at, anchor.position_at, anchor.seq)
+        if (deleted.changes === 0) return null
+
+        return { deleted: deleted.changes, epoch: bumpMessageEpoch(db, sessionId) }
+    })()
+}
+
 export function truncateMessagesFromLocalId(
     db: Database,
     sessionId: string,
