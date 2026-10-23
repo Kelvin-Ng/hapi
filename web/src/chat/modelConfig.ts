@@ -47,6 +47,32 @@ function parseCursorWireContextWindow(model: string): number | null {
     return null
 }
 
+// Bedrock / Vertex style ids (e.g. "global.anthropic.claude-opus-5-5[1m]",
+// "us.anthropic.claude-sonnet-5-5") name the same models as "claude-*".
+function stripClaudeProviderPrefix(model: string): string {
+    return model.replace(/^(?:[a-z]+\.)?anthropic\./, '')
+}
+
+function getClaudeModelFamily(model: string): string | null {
+    return /(opus|sonnet|haiku|fable)/i.exec(model)?.[1]?.toLowerCase() ?? null
+}
+
+/**
+ * Pick the model used for the Claude context-window heuristic. Transcript usage
+ * reports the bare API id without "[1m]", so a 1M session would be measured
+ * against 200k. Prefer the session's configured model when it carries the 1M
+ * suffix and names the same family as the usage-bearing message.
+ */
+export function pickClaudeContextModel(
+    usageModel: string | null | undefined,
+    sessionModel: string | null | undefined
+): string | null | undefined {
+    if (!usageModel) return sessionModel
+    if (!sessionModel?.trim().endsWith('[1m]') || usageModel.trim().endsWith('[1m]')) return usageModel
+    const usageFamily = getClaudeModelFamily(usageModel)
+    return usageFamily && usageFamily === getClaudeModelFamily(sessionModel) ? sessionModel : usageModel
+}
+
 export function getContextBudgetTokens(model: string | null | undefined, flavor?: string | null): number | null {
     if (flavor === 'codex') {
         return Math.max(1, DEFAULT_CODEX_CONTEXT_WINDOW_TOKENS - CONTEXT_HEADROOM_TOKENS)
@@ -69,7 +95,7 @@ export function getContextBudgetTokens(model: string | null | undefined, flavor?
         return null
     }
 
-    const trimmedModel = model?.trim()
+    const trimmedModel = model?.trim() ? stripClaudeProviderPrefix(model.trim()) : undefined
     const windowTokens = (() => {
         if (!trimmedModel) {
             return DEFAULT_CLAUDE_CONTEXT_WINDOW_TOKENS
