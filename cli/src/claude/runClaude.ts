@@ -22,6 +22,7 @@ import { formatAttachmentsForClaude, formatMessageWithAttachments } from '@/util
 import { normalizeClaudeSessionModel } from './model';
 import { normalizeClaudeSessionEffort } from './effort';
 import { normalizeHookPermissionMode } from './utils/hookPermissionMode';
+import { readClaudeSettings } from './utils/claudeSettings';
 import { getInvokedCwd } from '@/utils/invokedCwd';
 import {
     CLAUDE_CONVERSATION_HISTORY,
@@ -65,8 +66,14 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
     }
 
     const initialState: AgentState = {};
-    const initialModel = normalizeClaudeSessionModel(options.model);
-    const initialEffort = normalizeClaudeSessionEffort(options.effort);
+    // Without explicit flags, start from the defaults the Claude CLI itself reads
+    // from settings.json, so the hub shows (and remote mode passes) the same
+    // model/effort/permission mode the terminal session actually runs with.
+    const claudeSettings = readClaudeSettings();
+    const settingsString = (value: unknown) => typeof value === 'string' ? value : undefined;
+    const initialModel = normalizeClaudeSessionModel(options.model ?? settingsString(claudeSettings?.model));
+    const initialEffort = normalizeClaudeSessionEffort(options.effort ?? settingsString(claudeSettings?.effortLevel));
+    const settingsPermissionMode = normalizeHookPermissionMode(claudeSettings?.permissions?.defaultMode);
     const bootstrap = options.existingSessionId
         ? await bootstrapExistingSession({
             sessionId: options.existingSessionId,
@@ -201,6 +208,21 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
                     mode: hookPermissionMode
                 });
             }
+
+            // SessionStart carries the model the TUI is running (e.g. after /model
+            // then compact or clear); inherit it the same way.
+            const hookModel = normalizeClaudeSessionModel(typeof data.model === 'string' ? data.model : null);
+            if (
+                hookModel
+                && currentSession?.mode === 'local'
+                && sessionId === currentSession.sessionId
+                && hookModel !== currentModel
+            ) {
+                logger.debug(`[START] Inheriting model from local Claude: ${currentModel ?? 'auto'} -> ${hookModel}`);
+                currentModel = hookModel;
+                syncSessionModes();
+                currentSession.pushKeepAlive();
+            }
         }
     });
     logger.debug(`[START] Hook server started on port ${hookServer.port}`);
@@ -293,7 +315,7 @@ export async function runClaude(options: StartOptions = {}): Promise<void> {
     }));
 
     // Forward messages to the queue
-    let currentPermissionMode: PermissionMode = options.permissionMode ?? 'default';
+    let currentPermissionMode: PermissionMode = options.permissionMode ?? settingsPermissionMode ?? 'default';
     let currentModel: SessionModel = initialModel;
     let currentEffort: SessionEffort = initialEffort;
     let currentFallbackModel: string | undefined = undefined; // Track current fallback model
