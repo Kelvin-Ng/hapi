@@ -388,7 +388,10 @@ export function query(config: {
     const child = spawn(spawnCommand, spawnArgs, {
         cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
-        signal: config.options?.abort,
+        // No `signal` here: Node's abort only kills the direct child, and the
+        // claude on PATH may be a wrapper (e.g. ASBX toolbox-exec) that does not
+        // forward SIGTERM, orphaning the real Claude, which keeps running tools.
+        // handleAbort kills the whole tree instead (see spawnWithAbort).
         env: spawnEnv,
         // Use shell: false with absolute path from getDefaultClaudeCodePath()
         // This avoids cmd.exe resolution issues on Windows
@@ -442,6 +445,9 @@ export function query(config: {
         void cleanup()
     }
     config.options?.abort?.addEventListener('abort', handleAbort)
+    if (config.options?.abort?.aborted) {
+        handleAbort()
+    }
     process.on('exit', handleProcessExit)
 
     // Create query instance BEFORE registering close handler
